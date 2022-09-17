@@ -33,14 +33,15 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define SWARM_UART_TX_TIMEOUT	500
-#define SWARM_UART_RX_TIMEOUT	1000
-#define RX_BUFF_SIZE			200
-#define TX_BUFF_SIZE			250
-#define PW_BUFF_SIZE			5
-#define GN_BUFF_SIZE			35
-#define TD_PAYLOAD_BUFF_SIZE	90
-#define AT_SWARM_BUFF_SIZE		100
+#define SWARM_UART_TX_TIMEOUT		500
+#define SWARM_UART_RX_TIMEOUT		250
+#define SWARM_UART_RX_XL_TIMEOUT	5000
+#define RX_BUFF_SIZE				200
+#define TX_BUFF_SIZE				250
+#define PW_BUFF_SIZE				5
+#define GN_BUFF_SIZE				35
+#define TD_PAYLOAD_BUFF_SIZE		90
+#define AT_SWARM_BUFF_SIZE			100
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -87,7 +88,7 @@ const char*			gn_q_rate_at_comm		= "$GN ?\0" ;
 const char*			gn_mostrecent_at_comm	= "$GN @\0" ;
 const char*			dt_mostrecent_at_comm	= "$DT @\0" ;
 const char*			mt_del_all_at_comm		= "$MT D=U\0" ;
-//const char 			td_mzo_at_comm[]		= "$TD HD=300,\"MZO\"" ; // to ładnie działało i przeszło przez satelitę
+const char 			td_mzo_at_comm[]		= "$TD HD=60,\"MZO\"" ; // to ładnie działało i przeszło przez satelitę
 const char*			sl_3ks_at_comm			= "$SL S=3000\0" ; // 50 minut spania dla Swarm
 const char*			sl_3c5ks_at_comm		= "$SL S=3500\0" ; // 50-2 minut spania dla Swarm
 const char*			sl_3c4ks_at_comm		= "$SL S=3400\0" ; // 60-3 minut spania dla Swarm
@@ -205,6 +206,7 @@ int main(void)
   {
 	  if ( checklist == 13 )
 		  send2swarm_at_command ( pw_mostrecent_at_comm , pw_mostrecent_answer , 14 ) ;
+	  //wait_for_tim16x ( 6 ) ;
 	  if ( checklist == 14 )
 		  send2swarm_at_command ( gn_mostrecent_at_comm , gn_mostrecent_answer , 15 ) ;
 	  if ( checklist == 15 )
@@ -213,20 +215,22 @@ int main(void)
 	  {
 		  snprintf ( td_at_comm , TD_PAYLOAD_BUFF_SIZE , "$TD HD=60,\"%s;%s\"" , pw_buff , gn_buff ) ;
 		  send2swarm_at_command ( td_at_comm , td_ok_answer , 17 ) ;
-		  pw_buff[0] = 0 ;
-		  gn_buff[0] = 0 ;
+		  //send2swarm_at_command ( td_mzo_at_comm , td_ok_answer , 17 ) ;
 	  }
 	  if ( checklist == 17 )
 	  {
-		  wait_for_tim16x ( 6 ) ;
-		  send2swarm_at_command ( sl_60s_at_comm , sl_ok_answer , 18 ) ; // Swarm sleep for 50 minutes
-		  wait_for_tim16x ( 6 ) ;
+		  //wait_for_tim16x ( 6 ) ;
+		  //send2swarm_at_command ( sl_60s_at_comm , sl_ok_answer , 18 ) ; // Swarm sleep for 50 minutes
+
 	  }
 	  else
 	  {
-		  send2swarm_at_command ( sl_120s_at_comm , sl_ok_answer , 18 ) ; // TEST Swarm sleep for 1 minutes
-	  	  wait_for_tim16x ( 120 ) ;
+		  //send2swarm_at_command ( sl_60s_at_comm , sl_ok_answer , 18 ) ; // TEST Swarm sleep for 1 minutes
 	  }
+	  wait_for_tim16x ( 1 ) ;
+	  rx_buff[0] = 0 ;
+	  pw_buff[0] = 0 ;
+	  gn_buff[0] = 0 ;
 	  checklist = 13 ;
     /* USER CODE END WHILE */
 
@@ -469,9 +473,53 @@ void send2swarm_at_command ( const char* at_command , const char* answer , uint8
 
 	sprintf ( (char*) tx_buff , "%s*%02x\n" , at_command , cs ) ;
 	uart_status = HAL_UART_Transmit ( &huart1 , (const uint8_t *) tx_buff ,  strlen ( (char*) tx_buff ) , SWARM_UART_TX_TIMEOUT ) ;
+
+	/* Wait of SWARM UARt RX */
+	tim16_on = 1 ;
+	HAL_TIM_Base_Start_IT ( &htim16 ) ;
+	while ( tim16_on )
+	{
+		uart_status = HAL_UART_Receive ( &huart1 , rx_buff , sizeof ( rx_buff ) , SWARM_UART_RX_TIMEOUT ) ;
+		if ( strncmp ( (char*) rx_buff , answer , strlen ( answer ) ) == 0 )
+		{
+			checklist = step ;
+			break ;
+		}
+		else
+			rx_buff[0] = 0 ;
+	}
+	if ( checklist != step && step != 17 )
+	{
+		uart_status = HAL_UART_Transmit ( &huart1 , (const uint8_t *) tx_buff ,  strlen ( (char*) tx_buff ) , SWARM_UART_TX_TIMEOUT ) ;
+
+		/* Wait of SWARM UARt RX */
+		tim16_on = 1 ;
+		HAL_TIM_Base_Start_IT ( &htim16 ) ;
+		while ( tim16_on )
+		{
+			uart_status = HAL_UART_Receive ( &huart1 , rx_buff , sizeof ( rx_buff ) , SWARM_UART_RX_TIMEOUT ) ;
+			if ( strncmp ( (char*) rx_buff , answer , strlen ( answer ) ) == 0 )
+			{
+				checklist = step ;
+				break ;
+			}
+			else
+				rx_buff[0] = 0 ;
+		}
+	}
+	/*
 	uart_status = HAL_UART_Receive ( &huart1 , rx_buff , sizeof ( rx_buff ) , SWARM_UART_RX_TIMEOUT ) ;
 	if ( strncmp ( (char*) rx_buff , answer , strlen ( answer ) ) == 0 )
 		checklist = step ;
+	else
+	{
+		wait_for_tim16x ( 1 ) ;
+		uart_status = HAL_UART_Receive ( &huart1 , rx_buff , sizeof ( rx_buff ) , SWARM_UART_RX_XL_TIMEOUT ) ;
+		if ( strncmp ( (char*) rx_buff , answer , strlen ( answer ) ) == 0 )
+			checklist = step ;
+	}
+	*/
+
 	if ( strncmp ( pw_mostrecent_at_comm , at_command , strlen ( pw_mostrecent_at_comm ) ) == 0 )
 		pw2payload () ;
 	if ( strncmp ( gn_mostrecent_at_comm , at_command , strlen ( gn_mostrecent_at_comm ) ) == 0 )
