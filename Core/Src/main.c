@@ -483,6 +483,7 @@ void send2swarm_at_command ( const char* at_command , const char* answer , uint8
 	uart_status = HAL_UART_AbortReceive ( &huart1 ) ;
 	rx_buff[0] = 0 ;
 	uart_status = HAL_UART_Transmit ( &huart1 , (const uint8_t *) tx_buff ,  strlen ( (char*) tx_buff ) , SWARM_UART_TX_TIMEOUT ) ;
+	tx_buff[0] = 0 ;
 	//uart_status = HAL_UART_Receive ( &huart1 , rx_buff , sizeof ( rx_buff ) , SWARM_UART_RX_TIMEOUT ) ;
 	uart_status = HAL_UARTEx_ReceiveToIdle ( &huart1 , rx_buff , sizeof ( rx_buff ) , &rx_len , SWARM_UART_RX_TIMEOUT ) ;
 	/* Wait of SWARM UARt RX */
@@ -505,6 +506,7 @@ void send2swarm_at_command ( const char* at_command , const char* answer , uint8
 	if ( checklist != step && step != 17 )
 	{
 		uart_status = HAL_UART_Transmit ( &huart1 , (const uint8_t *) tx_buff ,  strlen ( (char*) tx_buff ) , SWARM_UART_TX_TIMEOUT ) ;
+		tx_buff[0] = 0 ;
 		//uart_status = HAL_UART_Receive ( &huart1 , rx_buff , sizeof ( rx_buff ) , SWARM_UART_RX_TIMEOUT ) ;
 		uart_status = HAL_UARTEx_ReceiveToIdle ( &huart1 , rx_buff , sizeof ( rx_buff ) , &rx_len , SWARM_UART_RX_TIMEOUT ) ;
 		/* Wait of SWARM UARt RX */
