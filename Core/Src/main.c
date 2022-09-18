@@ -52,8 +52,8 @@
 /* Private variables ---------------------------------------------------------*/
 RTC_HandleTypeDef hrtc;
 
-TIM_HandleTypeDef htim14; // 2s Timer
-TIM_HandleTypeDef htim16; // 10s Timer
+TIM_HandleTypeDef htim14;
+TIM_HandleTypeDef htim16;
 
 UART_HandleTypeDef huart1;
 
@@ -69,6 +69,7 @@ char				pw_buff[PW_BUFF_SIZE] ;
 char				gn_buff[GN_BUFF_SIZE] ;
 char 				td_at_comm[TD_PAYLOAD_BUFF_SIZE] ;
 char* 				chunk ;
+uint16_t			rx_len =  RX_BUFF_SIZE ;// stosowane tylko HAL_UARTEx_ReceiveToIdle()
 
 // SWARM AT Commands
 const char*			cs_at_comm				= "$CS\0" ;
@@ -94,6 +95,7 @@ const char*			sl_3c5ks_at_comm		= "$SL S=3500\0" ; // 50-2 minut spania dla Swar
 const char*			sl_3c4ks_at_comm		= "$SL S=3400\0" ; // 60-3 minut spania dla Swarm
 const char*			sl_60s_at_comm			= "$SL S=60\0" ; // 60s spania dla Swarm
 const char*			sl_120s_at_comm			= "$SL S=120\0" ; // 120s spania dla Swarm
+const char*			sl_5s_at_comm			= "$SL S=5\0" ; // 120s spania dla Swarm
 
 // SWARM AT Answers
 const char*         cs_answer				= "$CS DI=0x\0" ;
@@ -173,6 +175,7 @@ int main(void)
   __HAL_TIM_CLEAR_IT ( &htim14 , TIM_IT_UPDATE ) ; // żeby nie generować przerwania TIM6 od razu: https://stackoverflow.com/questions/71099885/why-hal-tim-periodelapsedcallback-gets-called-immediately-after-hal-tim-base-sta
   __HAL_TIM_CLEAR_IT ( &htim16 , TIM_IT_UPDATE ) ; // żeby nie generować przerwania TIM6 od razu: https://stackoverflow.com/questions/71099885/why-hal-tim-periodelapsedcallback-gets-called-immediately-after-hal-tim-base-sta
   //wait_for_tim16x ( 2 ) ;
+
   send2swarm_at_command ( cs_at_comm , cs_answer , 1 ) ;
   if ( checklist == 1 )
 	  send2swarm_at_command ( rt_0_at_comm , rt_ok_answer , 2 ) ;
@@ -198,6 +201,7 @@ int main(void)
 	  send2swarm_at_command ( gn_0_at_comm , gn_ok_answer , 12 ) ;
   if ( checklist == 12 )
 	  send2swarm_at_command ( gn_q_rate_at_comm , gn_0_answer , 13 ) ;
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -218,23 +222,25 @@ int main(void)
 		  //send2swarm_at_command ( td_mzo_at_comm , td_ok_answer , 17 ) ;
 	  }
 	  if ( checklist == 17 )
-	  {
-		  //wait_for_tim16x ( 6 ) ;
-		  //send2swarm_at_command ( sl_60s_at_comm , sl_ok_answer , 18 ) ; // Swarm sleep for 50 minutes
+		  wait_for_tim16x ( 6 ) ;
 
-	  }
-	  else
-	  {
-		  //send2swarm_at_command ( sl_60s_at_comm , sl_ok_answer , 18 ) ; // TEST Swarm sleep for 1 minutes
-	  }
-	  wait_for_tim16x ( 1 ) ;
+	  send2swarm_at_command ( sl_3c5ks_at_comm , sl_ok_answer , 18 ) ; // Swarm sleep for 50min.
 	  rx_buff[0] = 0 ;
 	  pw_buff[0] = 0 ;
 	  gn_buff[0] = 0 ;
 	  checklist = 13 ;
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+
+
+	  /* Enter LowPower Mode */
+
+	  // Option1: Enter the SHUTDOWN mode. App applies hard restart after WFI
+	  HAL_PWREx_EnterSHUTDOWNMode () ; // Enter the SHUTDOWN mode. Docelowo rozważyć STOP Mode 2, żeby nie zaczynać zawsze od konfiguracji
+	  // Option2: Enter the STOP1. App continues after WFI without restarting variables like chacklist
+	  //HAL_PWR_EnterSTOPMode ( PWR_LOWPOWERREGULATOR_ON , PWR_STOPENTRY_WFI ) ;
   }
   /* USER CODE END 3 */
 }
@@ -319,7 +325,7 @@ static void MX_RTC_Init(void)
 
   /** Enable the WakeUp
   */
-  if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, 3600, RTC_WAKEUPCLOCK_CK_SPRE_16BITS) != HAL_OK)
+  if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, 60, RTC_WAKEUPCLOCK_CK_SPRE_16BITS) != HAL_OK)
   {
     Error_Handler();
   }
@@ -472,39 +478,53 @@ void send2swarm_at_command ( const char* at_command , const char* answer , uint8
 	uint8_t cs = nmea_checksum ( at_command , strlen ( at_command ) ) ;
 
 	sprintf ( (char*) tx_buff , "%s*%02x\n" , at_command , cs ) ;
+	//uart_status = HAL_UART_Receive ( &huart1 , rx_buff , sizeof ( rx_buff ) , SWARM_UART_RX_TIMEOUT ) ;
+	uart_status = HAL_UARTEx_ReceiveToIdle ( &huart1 , rx_buff , sizeof ( rx_buff ) , &rx_len , SWARM_UART_RX_TIMEOUT ) ;
+	uart_status = HAL_UART_AbortReceive ( &huart1 ) ;
+	rx_buff[0] = 0 ;
 	uart_status = HAL_UART_Transmit ( &huart1 , (const uint8_t *) tx_buff ,  strlen ( (char*) tx_buff ) , SWARM_UART_TX_TIMEOUT ) ;
-
+	//uart_status = HAL_UART_Receive ( &huart1 , rx_buff , sizeof ( rx_buff ) , SWARM_UART_RX_TIMEOUT ) ;
+	uart_status = HAL_UARTEx_ReceiveToIdle ( &huart1 , rx_buff , sizeof ( rx_buff ) , &rx_len , SWARM_UART_RX_TIMEOUT ) ;
 	/* Wait of SWARM UARt RX */
 	tim16_on = 1 ;
 	HAL_TIM_Base_Start_IT ( &htim16 ) ;
 	while ( tim16_on )
 	{
-		uart_status = HAL_UART_Receive ( &huart1 , rx_buff , sizeof ( rx_buff ) , SWARM_UART_RX_TIMEOUT ) ;
 		if ( strncmp ( (char*) rx_buff , answer , strlen ( answer ) ) == 0 )
 		{
 			checklist = step ;
 			break ;
 		}
 		else
+		{
 			rx_buff[0] = 0 ;
+			//uart_status = HAL_UART_Receive ( &huart1 , rx_buff , sizeof ( rx_buff ) , SWARM_UART_RX_TIMEOUT ) ;
+			uart_status = HAL_UARTEx_ReceiveToIdle ( &huart1 , rx_buff , sizeof ( rx_buff ) , &rx_len , SWARM_UART_RX_TIMEOUT ) ;
+		}
 	}
 	if ( checklist != step && step != 17 )
 	{
 		uart_status = HAL_UART_Transmit ( &huart1 , (const uint8_t *) tx_buff ,  strlen ( (char*) tx_buff ) , SWARM_UART_TX_TIMEOUT ) ;
-
+		//uart_status = HAL_UART_Receive ( &huart1 , rx_buff , sizeof ( rx_buff ) , SWARM_UART_RX_TIMEOUT ) ;
+		uart_status = HAL_UARTEx_ReceiveToIdle ( &huart1 , rx_buff , sizeof ( rx_buff ) , &rx_len , SWARM_UART_RX_TIMEOUT ) ;
 		/* Wait of SWARM UARt RX */
 		tim16_on = 1 ;
 		HAL_TIM_Base_Start_IT ( &htim16 ) ;
 		while ( tim16_on )
 		{
-			uart_status = HAL_UART_Receive ( &huart1 , rx_buff , sizeof ( rx_buff ) , SWARM_UART_RX_TIMEOUT ) ;
+			//uart_status = HAL_UART_Receive ( &huart1 , rx_buff , sizeof ( rx_buff ) , SWARM_UART_RX_TIMEOUT ) ;
+			uart_status = HAL_UARTEx_ReceiveToIdle ( &huart1 , rx_buff , sizeof ( rx_buff ) , &rx_len , SWARM_UART_RX_TIMEOUT ) ;
 			if ( strncmp ( (char*) rx_buff , answer , strlen ( answer ) ) == 0 )
 			{
 				checklist = step ;
 				break ;
 			}
 			else
+			{
 				rx_buff[0] = 0 ;
+				//uart_status = HAL_UART_Receive ( &huart1 , rx_buff , sizeof ( rx_buff ) , SWARM_UART_RX_TIMEOUT ) ;
+				uart_status = HAL_UARTEx_ReceiveToIdle ( &huart1 , rx_buff , sizeof ( rx_buff ) , &rx_len , SWARM_UART_RX_TIMEOUT ) ;
+			}
 		}
 	}
 	/*
